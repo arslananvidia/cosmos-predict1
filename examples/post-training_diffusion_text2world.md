@@ -249,6 +249,48 @@ checkpoints/posttraining/diffusion_text2world/text2world_7b_lora_example_cosmos_
 `iter_{NUMBER}_model.pt` contains all weights (base model weights and LoRA weights tensors). When `ema=True`, the checkpoint will contain both regular and ema weights.
 
 
+##### Cosmos-Predict1-7B-Text2World with LoRA
+
+Run the following command to execute an example LoRA post-training job with `cosmos_nemo_assets` data.
+```bash
+export OUTPUT_ROOT=checkpoints # default value
+torchrun --nproc_per_node=4 -m cosmos_predict1.diffusion.training.train \
+    --config=cosmos_predict1/diffusion/training/config/config.py \
+    -- experiment=text2world_7b_lora_example_cosmos_nemo_assets
+```
+See the config `text2world_7b_lora_example_cosmos_nemo_assets` defined in `cosmos_predict1/diffusion/training/config/text2world/experiment.py` to understand how LoRA is enabled. 
+```python
+text2world_7b_example_cosmos_nemo_assets = LazyDict(
+    dict(
+        defaults=[
+            ...
+            {"override /ckpt_klass": "peft"},
+            ...
+        ],
+        trainer=dict(
+            ...
+            distributed_parallelism="ddp",
+            ...
+        )
+        model=dict(
+            ...
+            peft_control=get_fa_ca_qv_lora_config(first_nblocks=27, rank=8, scale=1),
+            ...
+        ),
+    )
+)
+```
+
+During the training, the checkpoints will be saved in the below structure.
+```
+checkpoints/posttraining/diffusion_text2world/text2world_7b_lora_example_cosmos_nemo_assets/checkpoints/
+├── iter_{NUMBER}_model.pt
+├── iter_{NUMBER}_merged.pt
+```
+
+`iter_{NUMBER}_model.pt` contains all weights (base model weights and LoRA weights tensors). During training, the checkpointer also creates a merged checkpoint `iter_{NUMBER}_merged.pt` by summing LoRA weights product with the base model weights.
+
+
 ##### Cosmos-Predict1-14B-Text2World
 
 Run the following command to execute an example post-training job with `cosmos_nemo_assets` data.
@@ -342,7 +384,6 @@ CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) torchrun --nproc_per_node=${NUM_GPUS} 
 ```
 
 The output file is located at `outputs/diffusion-text2world-7b-post-trained-lora.mp4`.
-
 
 ##### Cosmos-Predict1-14B-Text2World
 
