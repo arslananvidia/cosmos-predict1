@@ -29,8 +29,6 @@ from cosmos_predict1.utils.lazy_config import PLACEHOLDER
 from cosmos_predict1.utils.lazy_config import LazyCall as L
 from cosmos_predict1.utils.lazy_config import LazyDict
 from cosmos_predict1.diffusion.training.utils.peft.lora_config import get_fa_ca_qv_lora_config
-from cosmos_predict1.diffusion.training.callbacks.every_n_draw_sample import EveryNDrawSample
-
 
 def get_sampler(dataset):
     return DistributedSampler(
@@ -456,19 +454,6 @@ text2world_7b_example_cosmos_nemo_assets = LazyDict(
                     hit_thres=0,
                 ),
                 progress_bar=L(ProgressBarCallback)(),
-                every_n_sample_reg=L(EveryNDrawSample)(
-                    every_n=1000,
-                    is_x0=False,
-                    use_negative_prompt=True,
-                    save_s3=True,
-                ),
-                every_n_sample_ema=L(EveryNDrawSample)(
-                    every_n=1000,
-                    is_x0=False,
-                    is_ema=True,
-                    use_negative_prompt=True,
-                    save_s3=True,
-                ),
             ),
         ),
         model_parallel=dict(
@@ -987,19 +972,6 @@ text2world_7b_lora_example_cosmos_nemo_assets = LazyDict(
                     hit_thres=0,
                 ),
                 progress_bar=L(ProgressBarCallback)(),
-                every_n_sample_reg=L(EveryNDrawSample)(
-                    every_n=1000,
-                    is_x0=False,
-                    use_negative_prompt=True,
-                    save_s3=True,
-                ),
-                every_n_sample_ema=L(EveryNDrawSample)(
-                    every_n=1000,
-                    is_x0=False,
-                    is_ema=True,
-                    use_negative_prompt=True,
-                    save_s3=True,
-                ),
             ),
         ),
         model_parallel=dict(

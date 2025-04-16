@@ -32,7 +32,6 @@ class Checkpointer(DDPCheckpointer):
         super().__init__(*args, **kwargs)
         if not self.broadcast_via_filesystem:
             raise ValueError("self.broadcast_via_filesystem=False is not implemented for PEFT checkpointer.")
-        self.base_model_state_dict = None # This will be instantiated once and assumed to remain constant across iterations
 
     def add_type_postfix_to_checkpoint_path(self, key: str, checkpoint_path: str, model: Model) -> str:
         """
