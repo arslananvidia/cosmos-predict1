@@ -126,6 +126,11 @@ world_interpolator_7b_example_hdvila = LazyDict(
                 88,
                 160,
             ],
+            # tokenizer=dict(
+            #     video_vae=dict(
+            #         pixel_chunk_duration=9,
+            #     )
+            # ),
             loss_reduce="mean",
             ema=dict(
                 enabled=True,
@@ -165,7 +170,11 @@ world_interpolator_7b_example_hdvila = LazyDict(
                     dropout_rate=0.5,
                 ),
             ),
-            vae=dict(pixel_chunk_duration=9),  # 9 frames per chunk for video vae (18 frames / 2 chunks = 9)
+            # vae=dict(pixel_chunk_duration=9),  # 9 frames per chunk for video vae (18 frames / 2 chunks = 9)
+            vae=dict(  # Added VAE field
+                pixel_chunk_duration=9,
+                latent_ch=16,
+            ),
         ),
         model_obj=L(FSDPInterpolatorDiffusionModel)(
             config=PLACEHOLDER,
@@ -197,3 +206,5 @@ def register_experiments(cs):
             name=experiment_name,
             node=_item,
         )
+
+register_experiments(cs)
