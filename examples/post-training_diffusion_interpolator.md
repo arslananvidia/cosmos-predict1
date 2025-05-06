@@ -37,20 +37,57 @@ There are 3 steps to post-training: downloading a dataset, preprocessing the dat
 
 #### 1. Download a Dataset
 
-The first step is to download a dataset with videos and captions.
+The first step is to download a dataset with videos.
 
-You must provide a folder containing a collection of videos in **MP4 format**, preferably 720p. These videos should focus on the subject throughout the entire video so that each video chunk contains the subject.
+You must provide a folder containing a collection of videos in **MP4 format**, preferably 720p. These videos should focus be diverse enough to capture different scenarios.
 
-Example 1. You can use [nvidia/Cosmos-NeMo-Assets](https://huggingface.co/datasets/nvidia/Cosmos-NeMo-Assets) for post-training.
+For example, you can use a subset of [HD-VILA-100M](https://github.com/microsoft/XPretrain/tree/main/hd-vila-100m) dataset for post-training.
 
 ```bash
-mkdir -p datasets/cosmos_nemo_assets/
-
-# This command will download the videos for physical AI
-huggingface-cli download nvidia/Cosmos-NeMo-Assets --repo-type dataset --local-dir datasets/cosmos_nemo_assets/ --include "*.mp4*"
-
-mv datasets/cosmos_nemo_assets/nemo_diffusion_example_data datasets/cosmos_nemo_assets/videos
+# Download metadata with video urls
+mkdir -p datasets/hdvila
+cd datasets/hdvila
+wget https://huggingface.co/datasets/TempoFunk/hdvila-100M/resolve/main/hdvila-100M.jsonl
 ```
+
+Run the following command to download the sample videos used for post-training:
+
+```bash
+# Requirements for Youtube video downloads & video clipping
+pip install pytubefix ffmpeg
+```
+
+```bash
+# The script will downlaod the original HD-VILA-100M videos, save the corresponding clips and the metadata.
+python3 -m scripts.download_tokenizer_example_data --dataset_path datasets/hdvila --N_videos 128 --do_download --do_clip
+```
+
+The downloaded files should be in the following structure:
+```
+datasets/hdvila/
+├── metas/
+│   ├── *.json
+└── videos/
+    └── *.mp4
+```
+
+Finally, register the glob pattern to the mp4 files at [dataset_provider.py](cosmos_predict1/tokenizer/training/datasets/dataset_provider.py), as show below.
+```python
+_VIDEO_PATTERN_DICT = {
+    "hdvila_video": "datasets/hdvila/videos/*mp4",
+}
+```
+
+```bash
+PYTHONPATH=$(pwd) python -m \
+cosmos_predict1.tokenizer.training.datasets.dataset_provider \
+  --dataset_name hdvila_video \
+  --dataset_type video \
+  --is_train true    
+```
+
+**Note**: As will be shown below, different resolution variants of the `hdvila_video` can be obtained by simply passing `hdvila_video<resolution>`. For instance, in the following examples, we use `hdvila_video360` and `hdvila_video720` to refer to the same hdvila videos but resized to the resolution 360p and 720p, respectively, at the time of training.
+
 
 #### 2. Preprocessing the Data
 
@@ -58,12 +95,12 @@ Run the following command to pre-compute T5-XXL embeddings for the video caption
 
 ```bash
 # The script will use the provided prompt, save the T5-XXL embeddings in pickle format.
-CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python scripts/get_t5_embeddings_from_cosmos_nemo_assets.py --dataset_path datasets/cosmos_nemo_assets --prompt "A video of sks teal robot."
+CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python scripts/get_t5_embeddings.py --dataset_path datasets/hdvila
 ```
 
 Dataset folder format:
 ```
-datasets/cosmos_nemo_assets/
+datasets/hdvila/
 ├── metas/
 │   ├── *.txt
 ├── videos/
@@ -74,71 +111,64 @@ datasets/cosmos_nemo_assets/
 
 #### 3. Post-train the Model
 
-Run the following command to execute an example post-training job with `cosmos_nemo_assets` data.
+Run the following command to execute an example post-training job with `hdvila` data.
 ```bash
 export OUTPUT_ROOT=checkpoints # default value
-torchrun --nproc_per_node=8 -m cosmos_predict1.diffusion.training.train --config=cosmos_predict1/diffusion/training/config/config.py -- experiment=video2world_7b_example_cosmos_nemo_assets
+torchrun --nproc_per_node=4 -m cosmos_predict1.diffusion.training.train --config=cosmos_predict1/diffusion/training/config/config.py -- experiment=world_interpolator_7b_example_hdvila
 ```
 
-The model will be post-trained using the above cosmos_nemo_assets dataset.
-See the config `video2world_7b_example_cosmos_nemo_assets` defined in `cosmos_predict1/diffusion/training/config/video2world/experiment.py` to understand how the dataloader is determined.
+The model will be post-trained using the above hdvila dataset.
+See the config `world_interpolator_7b_example_hdvila` defined in `cosmos_predict1/diffusion/training/config/world_interpolator/experiment.py` to understand how the dataloader is determined.
+
 ```python
-num_frames = 121
-example_video_dataset_cosmos_nemo_assets = L(Dataset)(
-    dataset_dir="datasets/cosmos_nemo_assets",
+num_frames = 18
+example_video_dataset = L(Dataset)(
+    dataset_dir="datasets/hdvila",
     sequence_interval=1,
     num_frames=num_frames,
     video_size=(720, 1280),
     start_frame_interval=1,
 )
 
-dataloader_train_cosmos_nemo_assets = L(DataLoader)(
-    dataset=example_video_dataset_cosmos_nemo_assets,
-    sampler=L(get_sampler)(dataset=example_video_dataset_cosmos_nemo_assets),
+dataloader_train = L(DataLoader)(
+    dataset=example_video_dataset,
+    sampler=L(get_sampler)(dataset=example_video_dataset),
+    batch_size=1,
+    num_workers=0,
+    prefetch_factor=None,  
+    drop_last=True,
+)
+dataloader_val = L(DataLoader)(
+    dataset=example_video_dataset,
+    sampler=L(get_sampler)(dataset=example_video_dataset),
     batch_size=1,
     drop_last=True,
 )
 ...
 
-video2world_7b_example_cosmos_nemo_assets = LazyDict(
-    dict(
-        ...
-        dataloader_train=dataloader_train_cosmos_nemo_assets,
-        ...
-    )
-)
-...
 ```
 
 The checkpoints will be saved to `${OUTPUT_ROOT}/PROJECT/GROUP/NAME`.
-In the above example, `PROJECT` is `posttraining`, `GROUP` is `diffusion_video2world`, `NAME` is `video2world_7b_example_cosmos_nemo_assets`.
+In the above example, `PROJECT` is `posttraining`, `GROUP` is `diffusion_video2world`, `NAME` is `world_interpolator_7b_example_hdvila`.
 
 See the job config to understand how they are determined.
 ```python
-video2world_7b_example_cosmos_nemo_assets = LazyDict(
+world_interpolator_7b_example_hdvila = LazyDict(
     dict(
         ...
         job=dict(
             project="posttraining",
-            group="diffusion_video2world",
-            name="video2world_7b_example_cosmos_nemo_assets",
+            group="diffusion_world_interpolator",
+            name="world_interpolator_7b_example_hdvila",
         ),
         ...
     )
 )
 ```
 
-During the training, the checkpoints will be saved in the below structure.
-```
-checkpoints/posttraining/diffusion_video2world/video2world_7b_example_cosmos_nemo_assets/checkpoints/
-├── iter_{NUMBER}_reg_model.pt
-├── iter_{NUMBER}_ema_model.pt
-```
+##### Post-train Cosmos-Predict1-7B-Video2World
 
-
-##### Cosmos-Predict1-7B-Video2World with LoRA
-
-Run the following command to execute an example LoRA post-training job with `cosmos_nemo_assets` data.
+Run the following command to execute an example post-training job with `cosmos_hdvila_assets` data.
 ```bash
 export OUTPUT_ROOT=checkpoints # default value
 torchrun --nproc_per_node=4 -m cosmos_predict1.diffusion.training.train \
@@ -146,93 +176,41 @@ torchrun --nproc_per_node=4 -m cosmos_predict1.diffusion.training.train \
     -- experiment=world_interpolator_7b_example_hdvila
 ```
 
-
-See the config `video2world_7b_lora_example_cosmos_nemo_assets` defined in `cosmos_predict1/diffusion/training/config/video2world/experiment.py` and `cosmos_predict1/diffusion/training/utils/layer_control/peft_control_config_parser.py` to understand how LoRA is enabled. 
-```python
-video2world_7b_example_cosmos_nemo_assets = LazyDict(
-    dict(
-        defaults=[
-            ...
-            {"override /ckpt_klass": "peft"},
-            ...
-        ],
-        trainer=dict(
-            ...
-            distributed_parallelism="ddp",
-            ...
-        )
-        model=dict(
-            ...
-            peft_control=get_fa_ca_qv_lora_config(first_nblocks=28, rank=8, scale=1),
-            ...
-        ),
-    )
-)
-```
-
 During the training, the checkpoints will be saved in the below structure.
 ```
-checkpoints/posttraining/diffusion_video2world/video2world_7b_lora_example_cosmos_nemo_assets/checkpoints/
-├── iter_{NUMBER}_model.pt
+checkpoints/posttraining/diffusion_world_interpolator/world_interpolator_7b_example_hdvila/checkpoints/
+├── iter_{NUMBER}_reg_model.pt
+├── iter_{NUMBER}_optimizer_model.pt
 ```
 
-`iter_{NUMBER}_model.pt` contains all weights (base model weights and LoRA weights tensors). When `ema=True`, the checkpoint will contain both regular and ema weights.
 
+#### 3. Inference with the Post-trained Model Checkpoint
 
-#### 4. Inference with the Post-trained Model Checkpoint
-
-The inference can be done with the same interface as described in [examples/inference_diffusion_video2world.md](/examples/inference_diffusion_video2world.md).
+The inference can be done with the same interface as described in [examples/inference_diffusion_WorldInterpolator.md](/examples/inference_diffusion_WorldInterpolator.md.
 
 ##### Cosmos-Predict1-7B-Video2World
 
 1. Copying checkpoint to Designated Location
 
-The post-trained checkpoint needs to be copied to `checkpoints/Cosmos-Predict1-7B-Video2World_post-trained/model.pt`
+The post-trained checkpoint needs to be copied to `checkpoints/Cosmos-Predict1-7B-WorldInterpolator/model.pt`
 
-For example, if a posttrained checkpoint (ema) with 1000 iterations is to be used,
+For example, if a posttrained checkpoint (ema) with 200 iterations is to be used,
 ```bash
 # copy checkpoint to the designated location
-mkdir checkpoints/Cosmos-Predict1-7B-Video2World_post-trained/
-cp checkpoints/posttraining/diffusion_video2world/video2world_7b_example_cosmos_nemo_assets/checkpoints/iter_000001000_ema_model.pt checkpoints/Cosmos-Predict1-7B-Video2World_post-trained/model.pt
+cp checkpoints/posttraining/diffusion_world_interpolator/world_interpolator_7b_example_hdvila/checkpoints/iter_000000200_reg_model.pt checkpoints/Cosmos-Predict1-7B-WorldInterpolator/model.pt
 ```
+
 2. Running the Inference
 
-This is the basic example for running inference on the post-trained 7B model with a single image.
+This is the basic example for running inference on the post-trained 7B model
 ```bash
-CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python cosmos_predict1/diffusion/inference/video2world.py \
+CUDA_VISIBLE_DEVICES=1 python3 -m cosmos_predict1.diffusion.inference.world_interpolator \
     --checkpoint_dir checkpoints \
-    --diffusion_transformer_dir Cosmos-Predict1-7B-Video2World_post-trained \
-    --input_image_or_video_path assets/diffusion/video2world_input0.jpg \
+    --diffusion_transformer_dir Cosmos-Predict1-7B-WorldInterpolator \
+    --input_image_or_video_path assets/diffusion/interpolation_example.mp4  \
     --num_input_frames 1 \
     --offload_prompt_upsampler \
-    --video_save_name diffusion-video2world-7b-post-trained
+    --video_save_name diffusion-world-interpolator-7b \
+    --num_video_frames 10 \
+    --num_frame_pairs 2
 ```
-
-##### Cosmos-Predict1-7B-Video2World with LoRA
-
-1. Copying checkpoint to the designated location.
-
-The LoRA post-trained checkpoint needs to be copied to `checkpoints/Cosmos-Predict1-7B-Video2World_post-trained-lora/model.pt`
-
-For example, if a LoRA post-trained checkpoint with 5000 iterations is to be used,
-```bash
-# copy checkpoint to the designated location
-mkdir checkpoints/Cosmos-Predict1-7B-Video2World_post-trained-lora/
-cp checkpoints/posttraining/diffusion_video2world/video2world_7b_lora_example_cosmos_nemo_assets/checkpoints/iter_000005000_model.pt checkpoints/Cosmos-Predict1-7B-Video2World_post-trained-lora/model.pt
-```
-
-2. Running the inference
-
-The following command is then used to run inference on LoRA post-trained 7B model with a single image input.
-```bash
-NUM_GPUS=4
-CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) torchrun --nproc_per_node=${NUM_GPUS} cosmos_predict1/diffusion/inference/video2world.py \
-    --num_gpus ${NUM_GPUS} \
-    --checkpoint_dir checkpoints \
-    --diffusion_transformer_dir Cosmos-Predict1-7B-Video2World_post-trained-lora \
-    --input_image_or_video_path assets/diffusion/video2world_input3.jpg \
-    --num_input_frames 1 \
-    --offload_prompt_upsampler \
-    --video_save_name diffusion-video2world-7b-post-trained-lora
-```
-The output file is located at `outputs/diffusion-video2world-7b-post-trained-lora.mp4`.
